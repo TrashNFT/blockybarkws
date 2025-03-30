@@ -10,30 +10,12 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Debug: Print current working directory and env file location
-print(f"Current working directory: {os.getcwd()}")
-print(f"Looking for .env file in: {os.path.join(os.getcwd(), '.env')}")
-print(f"Does .env file exist? {os.path.exists('.env')}")
-
 # Bot configuration
-DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-OG_ROLE_ID = os.getenv('OG_ROLE_ID')
-WL_ROLE_ID = os.getenv('WL_ROLE_ID')
+TOKEN = os.getenv('DISCORD_TOKEN')
+OG_ROLE_ID = int(os.getenv('OG_ROLE_ID'))
+WL_ROLE_ID = int(os.getenv('WL_ROLE_ID'))
 
-# Debug: Print environment variables
-print(f"DISCORD_TOKEN loaded: {'Yes' if DISCORD_TOKEN else 'No'}")
-print(f"OG_ROLE_ID loaded: {'Yes' if OG_ROLE_ID else 'No'}")
-print(f"WL_ROLE_ID loaded: {'Yes' if WL_ROLE_ID else 'No'}")
-
-# Check if environment variables are loaded
-if not DISCORD_TOKEN or not OG_ROLE_ID or not WL_ROLE_ID:
-    raise ValueError("Missing required environment variables. Please check your .env file.")
-
-# Convert role IDs to integers
-OG_ROLE_ID = int(OG_ROLE_ID)
-WL_ROLE_ID = int(WL_ROLE_ID)
-
-# Initialize bot with intents
+# Initialize bot with minimal intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -43,33 +25,24 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 WALLETS_FILE = 'wallets.json'
 
 def load_wallets():
-    if os.path.exists(WALLETS_FILE):
-        try:
+    try:
+        if os.path.exists(WALLETS_FILE):
             with open(WALLETS_FILE, 'r') as f:
                 data = json.load(f)
-                # Ensure the structure is correct
-                if not isinstance(data, dict):
-                    data = {'og': {}, 'wl': {}}
-                if 'og' not in data:
-                    data['og'] = {}
-                if 'wl' not in data:
-                    data['wl'] = {}
-                return data
-        except json.JSONDecodeError:
-            # If the file is corrupted or empty, return default structure
-            return {'og': {}, 'wl': {}}
+                return {
+                    'og': data.get('og', {}),
+                    'wl': data.get('wl', {})
+                }
+    except Exception:
+        pass
     return {'og': {}, 'wl': {}}
 
 def save_wallets(wallets):
-    # Ensure the structure is correct before saving
-    if not isinstance(wallets, dict):
-        wallets = {'og': {}, 'wl': {}}
-    if 'og' not in wallets:
-        wallets['og'] = {}
-    if 'wl' not in wallets:
-        wallets['wl'] = {}
-    with open(WALLETS_FILE, 'w') as f:
-        json.dump(wallets, f, indent=4)
+    try:
+        with open(WALLETS_FILE, 'w') as f:
+            json.dump(wallets, f, indent=4)
+    except Exception as e:
+        print(f"Error saving wallets: {e}")
 
 def has_required_role(member):
     return any(role.id in [OG_ROLE_ID, WL_ROLE_ID] for role in member.roles)
@@ -108,15 +81,12 @@ class WalletModal(discord.ui.Modal, title='Submit Wallet Address'):
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     try:
-        print("Syncing commands...")
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s):")
         for command in synced:
             print(f"- /{command.name}")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
-        print("Please make sure the bot has the correct permissions and try again.")
-        print("Required permissions: Send Messages, Embed Links, Use Slash Commands, Read Messages/View Channels, Manage Messages, Read Message History")
 
 class WalletPanel(discord.ui.View):
     def __init__(self):
@@ -138,7 +108,6 @@ class WalletPanel(discord.ui.View):
             user_id = str(interaction.user.id)
 
             if user_id in wallets[role_type]:
-                # Create a confirmation view
                 view = discord.ui.View()
                 
                 async def confirm_callback(interaction: discord.Interaction):
@@ -224,7 +193,6 @@ class WalletPanel(discord.ui.View):
             await interaction.response.send_message(f"You haven't submitted a {role_type.upper()} wallet address yet.", ephemeral=True)
             return
 
-        # Create a confirmation view
         view = discord.ui.View()
         
         async def confirm_callback(interaction: discord.Interaction):
@@ -263,7 +231,6 @@ async def create_panel(interaction: discord.Interaction):
         await interaction.response.send_message("You need administrator permissions to create a panel.", ephemeral=True)
         return
 
-    # Check if a panel already exists in this channel
     async for message in interaction.channel.history(limit=10):
         if message.author == bot.user and message.embeds and message.embeds[0].title == "Solana Wallet Management":
             await interaction.response.send_message("A wallet management panel already exists in this channel!", ephemeral=True)
@@ -285,18 +252,15 @@ async def create_panel(interaction: discord.Interaction):
 
 @bot.tree.command(name="export_wallets", description="Export all wallet addresses to a CSV file")
 async def export_wallets(interaction: discord.Interaction):
-    print(f"Export command triggered by {interaction.user.name}")
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("You need administrator permissions to export wallet data.", ephemeral=True)
         return
 
-    # Create a temporary CSV file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_filename = f"wallet_export_{timestamp}.csv"
     
     wallets = load_wallets()
     
-    # Write to CSV
     with open(csv_filename, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(['Role', 'User ID', 'Username', 'Wallet Address'])
@@ -306,7 +270,6 @@ async def export_wallets(interaction: discord.Interaction):
                 username = await get_username(bot, user_id)
                 writer.writerow([role_type.upper(), user_id, username, wallet_address])
 
-    # Create summary embed
     og_count = len(wallets['og'])
     wl_count = len(wallets['wl'])
     total_count = og_count + wl_count
@@ -320,14 +283,12 @@ async def export_wallets(interaction: discord.Interaction):
     )
     embed.set_footer(text=f"Exported at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # Send the file and embed
     await interaction.response.send_message(
         embed=embed,
         file=discord.File(csv_filename),
         ephemeral=True
     )
 
-    # Clean up the temporary file
     os.remove(csv_filename)
 
 @bot.tree.error
@@ -343,4 +304,4 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 # Run the bot
 if __name__ == "__main__":
     print("Starting bot...")
-    bot.run(DISCORD_TOKEN) 
+    bot.run(TOKEN) 
